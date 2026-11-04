@@ -1,0 +1,135 @@
+#define BLYNK_TEMPLATE_ID "TMPL2Gks0fvre"
+#define BLYNK_TEMPLATE_NAME "Monitor Vibracion Motor"
+#define BLYNK_AUTH_TOKEN "uDZ80VQ-Spb1OIrIEUZ2s3wKr-8p3bH3"
+
+#include <WiFi.h>
+#include <BlynkSimpleEsp32.h>
+
+// Credenciales WiFi
+char ssid[] = "AmoIot";
+char pass[] = "sinaiymari";
+
+// PINES FISICOS ESP32
+#define SENSOR_VIBRACION 13
+#define LED_ROJO 2
+#define BUZZER 4
+
+// PINES VIRTUALES BLYNK
+#define VPIN_ESTADO V1
+#define VPIN_ALARMA V2
+
+// VARIABLES
+bool alarmaActivada = true;
+bool vibracionAnterior = false;
+
+unsigned long ultimoEvento = 0;
+unsigned long ultimaNotificacion = 0;
+
+const unsigned long ANTIRREBOTE = 500;
+const unsigned long INTERVALO_NOTIFICACION = 3000;
+
+BlynkTimer timer;
+
+// CONTROL DE ALARMA DESDE BLYNK
+BLYNK_WRITE(V2) {
+
+  alarmaActivada = param.asInt();
+
+  if (!alarmaActivada) {
+    digitalWrite(BUZZER, LOW);
+    digitalWrite(LED_ROJO, LOW);
+  }
+}
+
+// SINCRONIZACION BLYNK
+BLYNK_CONNECTED() {
+  Blynk.syncVirtual(V2);
+}
+
+// DETECCION DE VIBRACION
+void detectarVibracion() {
+
+  int lectura = digitalRead(SENSOR_VIBRACION);
+
+  // LOW = vibracion detectada
+  bool vibracionActual = (lectura == LOW);
+
+  if (vibracionActual && !vibracionAnterior) {
+
+    unsigned long tiempoActual = millis();
+
+    if (tiempoActual - ultimoEvento >= ANTIRREBOTE) {
+
+      ultimoEvento = tiempoActual;
+
+      Serial.println("VIBRACION DETECTADA");
+
+      // ENVIAR ESTADO A BLYNK
+      Blynk.virtualWrite(VPIN_ESTADO, 1);
+
+      // ACTIVAR ALARMA
+      if (alarmaActivada) {
+
+        digitalWrite(LED_ROJO, HIGH);
+        digitalWrite(BUZZER, HIGH);
+
+      }
+
+      // NOTIFICACION PUSH
+      if (tiempoActual - ultimaNotificacion >=
+          INTERVALO_NOTIFICACION) {
+
+        Blynk.logEvent(
+          "vibracion_detectada",
+          "Alerta: vibracion detectada en el motor"
+        );
+
+        ultimaNotificacion = tiempoActual;
+      }
+    }
+  }
+
+  // MOTOR SIN VIBRACION
+  if (!vibracionActual) {
+
+    digitalWrite(LED_ROJO, LOW);
+    digitalWrite(BUZZER, LOW);
+
+    Blynk.virtualWrite(VPIN_ESTADO, 0);
+  }
+
+  vibracionAnterior = vibracionActual;
+}
+
+void setup() {
+
+  Serial.begin(115200);
+
+  pinMode(SENSOR_VIBRACION, INPUT);
+  pinMode(LED_ROJO, OUTPUT);
+  pinMode(BUZZER, OUTPUT);
+
+  digitalWrite(LED_ROJO, LOW);
+  digitalWrite(BUZZER, LOW);
+
+  Serial.println("Monitor de Vibracion ESP32");
+
+  // CONEXION BLYNK
+  Blynk.begin(
+    BLYNK_AUTH_TOKEN,
+    ssid,
+    pass
+  );
+
+  // LECTURA DEL SENSOR CADA 100 ms
+  timer.setInterval(100L, detectarVibracion);
+}
+
+void loop() {
+
+  Blynk.run();
+
+  timer.run();
+
+  
+}
